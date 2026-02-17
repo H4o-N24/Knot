@@ -1,0 +1,332 @@
+/**
+ * /event コマンド - イベント作成・管理
+ *
+ * サブコマンド:
+ * - /event create: 条件付きイベント作成 + 最適日抽出
+ * - /event list: イベント一覧表示
+ * - /event info: イベント詳細表示
+ */
+
+import {
+    SlashCommandBuilder,
+    type ChatInputCommandInteraction,
+    ActionRowBuilder,
+    StringSelectMenuBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+    type StringSelectMenuOptionBuilder,
+} from 'discord.js';
+import { PrismaClient } from '@prisma/client';
+import { findOptimalDates } from '../services/scheduler.js';
+import { candidateEmbed, successEmbed, infoEmbed, errorEmbed } from '../utils/embeds.js';
+import { formatDateJP } from '../utils/date.js';
+
+const prisma = new PrismaClient();
+
+export const data = new SlashCommandBuilder()
+    .setName('event')
+    .setDescription('イベントを管理します')
+    .addSubcommand((sub) =>
+        sub
+            .setName('create')
+            .setDescription('新しいイベントを作成します')
+            .addStringOption((opt) =>
+                opt.setName('title').setDescription('イベント名').setRequired(true),
+            )
+            .addIntegerOption((opt) =>
+                opt.setName('min').setDescription('最低参加人数').setRequired(false),
+            )
+            .addIntegerOption((opt) =>
+                opt.setName('max').setDescription('定員（上限）').setRequired(false),
+            )
+            .addUserOption((opt) =>
+                opt.setName('required1').setDescription('必須メンバー1').setRequired(false),
+            )
+            .addUserOption((opt) =>
+                opt.setName('required2').setDescription('必須メンバー2').setRequired(false),
+            )
+            .addUserOption((opt) =>
+                opt.setName('required3').setDescription('必須メンバー3').setRequired(false),
+            )
+            .addStringOption((opt) =>
+                opt
+                    .setName('dayfilter')
+                    .setDescription('曜日フィルター')
+                    .setRequired(false)
+                    .addChoices(
+                        { name: '平日のみ', value: 'weekdays' },
+                        { name: '週末のみ', value: 'weekends' },
+                        { name: 'すべて', value: 'all' },
+                    ),
+            ),
+    )
+    .addSubcommand((sub) =>
+        sub.setName('list').setDescription('現在のイベント一覧を表示します'),
+    )
+    .addSubcommand((sub) =>
+        sub
+            .setName('info')
+            .setDescription('イベントの詳細を表示します')
+            .addStringOption((opt) =>
+                opt.setName('id').setDescription('イベントID').setRequired(true),
+            ),
+    );
+
+export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
+    const subcommand = interaction.options.getSubcommand();
+
+    switch (subcommand) {
+        case 'create':
+            await handleCreate(interaction);
+            break;
+        case 'list':
+            await handleList(interaction);
+            break;
+        case 'info':
+            await handleInfo(interaction);
+            break;
+    }
+}
+
+/**
+ * イベント作成 + 最適日抽出
+ */
+async function handleCreate(interaction: ChatInputCommandInteraction): Promise<void> {
+    await interaction.deferReply();
+
+    const guildId = interaction.guildId;
+    if (!guildId) {
+        await interaction.editReply({ embeds: [errorEmbed('エラー', 'サーバー内でのみ使用できます。')] });
+        return;
+    }
+
+    const title = interaction.options.getString('title', true);
+    const minParticipants = interaction.options.getInteger('min') ?? 1;
+    const maxParticipants = interaction.options.getInteger('max') ?? undefined;
+
+    // 必須メンバーの取得
+    const requiredUserIds: string[] = [];
+    for (const key of ['required1', 'required2', 'required3'] as const) {
+        const user = interaction.options.getUser(key);
+        if (user) requiredUserIds.push(user.id);
+    }
+
+    // 曜日フィルター
+    const dayFilter = interaction.options.getString('dayfilter') ?? 'all';
+    let dayOfWeekFilter: number[] | undefined;
+    if (dayFilter === 'weekdays') dayOfWeekFilter = [1, 2, 3, 4, 5];
+    else if (dayFilter === 'weekends') dayOfWeekFilter = [0, 6];
+
+    // Guild がなければ自動作成
+    await prisma.guild.upsert({
+        where: { guildId },
+        create: { guildId },
+        update: {},
+    });
+
+    // User がなければ自動作成
+    await prisma.user.upsert({
+        where: { userId: interaction.user.id },
+        create: { userId: interaction.user.id, discordTag: interaction.user.tag },
+        update: { discordTag: interaction.user.tag },
+    });
+
+    // 翌月の期間を計算
+    const now = new Date();
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const endOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+    const startDate = nextMonth.toISOString().split('T')[0];
+    const endDate = endOfNextMonth.toISOString().split('T')[0];
+
+    // 最適日抽出
+    const candidates = await findOptimalDates({
+        guildId,
+        startDate,
+        endDate,
+        requiredUserIds,
+        minParticipants,
+        dayOfWeekFilter,
+    });
+
+    // イベントをDBに保存
+    const event = await prisma.event.create({
+        data: {
+            guildId,
+            title,
+            minParticipants,
+            maxParticipants: maxParticipants ?? null,
+            createdBy: interaction.user.id,
+        },
+    });
+
+    // 必須メンバーを保存
+    for (const uid of requiredUserIds) {
+        await prisma.user.upsert({
+            where: { userId: uid },
+            create: { userId: uid, discordTag: uid },
+            update: {},
+        });
+        await prisma.eventRequirement.create({
+            data: { eventId: event.id, requiredUserId: uid },
+        });
+    }
+
+    if (candidates.length === 0) {
+        await interaction.editReply({
+            embeds: [
+                infoEmbed(
+                    'イベント作成完了',
+                    `**${title}** を作成しましたが、現在の条件に合う候補日が見つかりません。\nメンバーに空き日の登録を依頼してください。\n\nイベントID: \`${event.id}\``,
+                ),
+            ],
+        });
+        return;
+    }
+
+    // 候補日のEmbed + セレクトメニュー
+    const candidatesWithTags = candidates.map((c) => ({
+        ...c,
+        date: formatDateJP(c.date),
+        members: c.members.map((uid) => `<@${uid}>`),
+    }));
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId(`event_select_date:${event.id}`)
+        .setPlaceholder('候補日を選択してください')
+        .addOptions(
+            candidates.map((c, i) => ({
+                label: formatDateJP(c.date),
+                description: `${c.count}人参加可能`,
+                value: c.date,
+                emoji: ['🥇', '🥈', '🥉'][i] ?? '📅',
+            })),
+        );
+
+    const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
+
+    await interaction.editReply({
+        embeds: [candidateEmbed(candidatesWithTags)],
+        components: [row],
+    });
+}
+
+/**
+ * イベント一覧
+ */
+async function handleList(interaction: ChatInputCommandInteraction): Promise<void> {
+    const guildId = interaction.guildId;
+    if (!guildId) {
+        await interaction.reply({ embeds: [errorEmbed('エラー', 'サーバー内でのみ使用できます。')], ephemeral: true });
+        return;
+    }
+
+    const events = await prisma.event.findMany({
+        where: {
+            guildId,
+            status: { in: ['PLANNING', 'CONFIRMED'] },
+        },
+        include: {
+            participants: { where: { status: 'CONFIRMED' } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+    });
+
+    if (events.length === 0) {
+        await interaction.reply({
+            embeds: [infoEmbed('イベント一覧', 'まだイベントがありません。\n`/event create` で作成しましょう！')],
+            ephemeral: true,
+        });
+        return;
+    }
+
+    const descriptions = events.map((e) => {
+        const statusEmoji = e.status === 'CONFIRMED' ? '✅' : '📝';
+        const dateStr = e.date ? formatDateJP(e.date) : '未定';
+        const count = e.participants.length;
+        const maxStr = e.maxParticipants ? `/${e.maxParticipants}` : '';
+        return `${statusEmoji} **${e.title}** | ${dateStr} | ${count}${maxStr}人 | ID: \`${e.id}\``;
+    });
+
+    await interaction.reply({
+        embeds: [infoEmbed('📋 イベント一覧', descriptions.join('\n'))],
+        ephemeral: true,
+    });
+}
+
+/**
+ * イベント詳細
+ */
+async function handleInfo(interaction: ChatInputCommandInteraction): Promise<void> {
+    const eventId = interaction.options.getString('id', true);
+
+    const event = await prisma.event.findUnique({
+        where: { id: eventId },
+        include: {
+            participants: { include: { user: true }, orderBy: { joinedAt: 'asc' } },
+            requirements: { include: { user: true } },
+        },
+    });
+
+    if (!event) {
+        await interaction.reply({
+            embeds: [errorEmbed('エラー', 'イベントが見つかりません。')],
+            ephemeral: true,
+        });
+        return;
+    }
+
+    const confirmed = event.participants.filter((p) => p.status === 'CONFIRMED');
+    const waitlisted = event.participants.filter((p) => p.status === 'WAITLISTED');
+    const required = event.requirements.map((r) => `<@${r.requiredUserId}>`);
+
+    const fields = [
+        { name: 'ステータス', value: event.status, inline: true },
+        { name: '日程', value: event.date ? formatDateJP(event.date) : '未定', inline: true },
+        { name: '最低人数', value: `${event.minParticipants}人`, inline: true },
+        {
+            name: `参加確定（${confirmed.length}${event.maxParticipants ? `/${event.maxParticipants}` : ''}人）`,
+            value: confirmed.length > 0 ? confirmed.map((p) => `<@${p.userId}>`).join(', ') : 'なし',
+            inline: false,
+        },
+    ];
+
+    if (waitlisted.length > 0) {
+        fields.push({
+            name: `キャンセル待ち（${waitlisted.length}人）`,
+            value: waitlisted.map((p) => `<@${p.userId}>`).join(', '),
+            inline: false,
+        });
+    }
+
+    if (required.length > 0) {
+        fields.push({
+            name: '必須メンバー',
+            value: required.join(', '),
+            inline: false,
+        });
+    }
+
+    // 参加/キャンセルボタン
+    const joinBtn = new ButtonBuilder()
+        .setCustomId(`event_join:${event.id}`)
+        .setLabel('参加')
+        .setStyle(ButtonStyle.Success)
+        .setEmoji('✅');
+
+    const cancelBtn = new ButtonBuilder()
+        .setCustomId(`event_cancel:${event.id}`)
+        .setLabel('キャンセル')
+        .setStyle(ButtonStyle.Danger)
+        .setEmoji('❌');
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(joinBtn, cancelBtn);
+
+    const embed = infoEmbed(event.title, event.description ?? 'イベントの詳細');
+    embed.setFields(fields);
+
+    await interaction.reply({
+        embeds: [embed],
+        components: [row],
+    });
+}
