@@ -70,6 +70,31 @@ export const data = new SlashCommandBuilder()
             .addStringOption((opt) =>
                 opt.setName('id').setDescription('イベントID').setRequired(true),
             ),
+    )
+    .addSubcommand((sub) =>
+        sub
+            .setName('edit')
+            .setDescription('イベントを編集します')
+            .addStringOption((opt) =>
+                opt.setName('id').setDescription('イベントID').setRequired(true),
+            )
+            .addStringOption((opt) =>
+                opt.setName('title').setDescription('新しいイベント名').setRequired(false),
+            )
+            .addIntegerOption((opt) =>
+                opt.setName('min').setDescription('新しい最低参加人数').setRequired(false),
+            )
+            .addIntegerOption((opt) =>
+                opt.setName('max').setDescription('新しい定員').setRequired(false),
+            ),
+    )
+    .addSubcommand((sub) =>
+        sub
+            .setName('delete')
+            .setDescription('イベントを削除します')
+            .addStringOption((opt) =>
+                opt.setName('id').setDescription('イベントID').setRequired(true),
+            ),
     );
 
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -84,6 +109,12 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
             break;
         case 'info':
             await handleInfo(interaction);
+            break;
+        case 'edit':
+            await handleEdit(interaction);
+            break;
+        case 'delete':
+            await handleDelete(interaction);
             break;
     }
 }
@@ -328,5 +359,82 @@ async function handleInfo(interaction: ChatInputCommandInteraction): Promise<voi
     await interaction.reply({
         embeds: [embed],
         components: [row],
+    });
+}
+
+/**
+ * イベント編集
+ */
+async function handleEdit(interaction: ChatInputCommandInteraction): Promise<void> {
+    await interaction.deferReply({ ephemeral: true });
+
+    const eventId = interaction.options.getString('id', true);
+    const event = await prisma.event.findUnique({ where: { id: eventId } });
+
+    if (!event) {
+        await interaction.editReply({ embeds: [errorEmbed('エラー', 'イベントが見つかりません。')] });
+        return;
+    }
+
+    if (event.createdBy !== interaction.user.id) {
+        await interaction.editReply({ embeds: [errorEmbed('権限エラー', 'イベントの編集は作成者のみ可能です。')] });
+        return;
+    }
+
+    const newTitle = interaction.options.getString('title');
+    const newMin = interaction.options.getInteger('min');
+    const newMax = interaction.options.getInteger('max');
+
+    if (!newTitle && newMin === null && newMax === null) {
+        await interaction.editReply({ embeds: [errorEmbed('入力エラー', '変更する項目を少なくとも1つ指定してください。\n`title`, `min`, `max` のいずれか')] });
+        return;
+    }
+
+    const updateData: { title?: string; minParticipants?: number; maxParticipants?: number | null } = {};
+    const changes: string[] = [];
+
+    if (newTitle) {
+        updateData.title = newTitle;
+        changes.push(`📝 イベント名: **${event.title}** → **${newTitle}**`);
+    }
+    if (newMin !== null) {
+        updateData.minParticipants = newMin;
+        changes.push(`👥 最低人数: **${event.minParticipants}** → **${newMin}**`);
+    }
+    if (newMax !== null) {
+        updateData.maxParticipants = newMax === 0 ? null : newMax;
+        changes.push(`📊 定員: **${event.maxParticipants ?? '無制限'}** → **${newMax === 0 ? '無制限' : newMax}**`);
+    }
+
+    await prisma.event.update({ where: { id: eventId }, data: updateData });
+
+    await interaction.editReply({
+        embeds: [successEmbed('イベントを更新しました', changes.join('\n'))],
+    });
+}
+
+/**
+ * イベント削除
+ */
+async function handleDelete(interaction: ChatInputCommandInteraction): Promise<void> {
+    await interaction.deferReply({ ephemeral: true });
+
+    const eventId = interaction.options.getString('id', true);
+    const event = await prisma.event.findUnique({ where: { id: eventId } });
+
+    if (!event) {
+        await interaction.editReply({ embeds: [errorEmbed('エラー', 'イベントが見つかりません。')] });
+        return;
+    }
+
+    if (event.createdBy !== interaction.user.id) {
+        await interaction.editReply({ embeds: [errorEmbed('権限エラー', 'イベントの削除は作成者のみ可能です。')] });
+        return;
+    }
+
+    await prisma.event.delete({ where: { id: eventId } });
+
+    await interaction.editReply({
+        embeds: [successEmbed('イベントを削除しました', `**${event.title}** を削除しました。`)],
     });
 }

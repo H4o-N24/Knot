@@ -14,8 +14,11 @@ import {
     ButtonBuilder,
     ButtonStyle,
 } from 'discord.js';
-import { getNextMonthInfo } from '../utils/date.js';
+import { PrismaClient } from '@prisma/client';
+import { getNextMonthInfo, formatDateJP } from '../utils/date.js';
 import { infoEmbed } from '../utils/embeds.js';
+
+const prisma = new PrismaClient();
 
 export const data = new SlashCommandBuilder()
     .setName('availability')
@@ -25,6 +28,25 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     const { year, month, daysInMonth } = getNextMonthInfo();
     const monthStr = String(month).padStart(2, '0');
     const dayLabels = ['日', '月', '火', '水', '木', '金', '土'];
+
+    // 既存の登録を取得
+    const guildId = interaction.guildId;
+    const existingDates = new Set<string>();
+    if (guildId) {
+        const existing = await prisma.availability.findMany({
+            where: {
+                userId: interaction.user.id,
+                guildId,
+                date: { startsWith: `${year}-${monthStr}` },
+                status: 'AVAILABLE',
+            },
+            select: { date: true },
+        });
+        for (const e of existing) {
+            existingDates.add(e.date);
+        }
+    }
+
 
     // --- 前半メニュー (1日〜15日) ---
     const firstHalfOptions = [];
@@ -83,15 +105,20 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
     // --- カレンダーEmbed ---
     const calendarText = buildCalendarText(year, month, daysInMonth);
+    const existingInfo = existingDates.size > 0
+        ? `\n📌 **現在の登録（${existingDates.size}日）:** ${Array.from(existingDates).sort().map(d => `${Number(d.split('-')[2])}日`).join(', ')}\n`
+        : '\n📌 **現在の登録:** なし\n';
+
     const embed = infoEmbed(
         `${year}年${month}月の空き日を登録`,
         [
             calendarText,
-            '',
+            existingInfo,
             '**使い方:**',
             '1️⃣ 前半・後半のメニューから空いている日を選択',
             '2️⃣ 「✅ 空き日を確定する」ボタンで登録',
             '',
+            '⚠️ 確定すると既存の登録は上書きされます',
             '🟧 = 土日 ⬜ = 平日',
         ].join('\n'),
     );

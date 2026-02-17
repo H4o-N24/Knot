@@ -22,7 +22,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
         .addFields(
             {
                 name: '📅 `/availability`',
-                value: '翌月の空き日を登録します。Modal画面で日付を入力できます。',
+                value: '翌月の空き日をカレンダー選択で登録・修正します。\n再実行で既存の登録を確認・上書きできます。',
                 inline: false,
             },
             {
@@ -36,6 +36,16 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
                     '• `required1〜3` - 必須メンバー',
                     '• `dayfilter` - 平日のみ / 週末のみ',
                 ].join('\n'),
+                inline: false,
+            },
+            {
+                name: '✏️ `/event edit`',
+                value: 'イベント名・最低人数・定員を変更します（作成者のみ）。\n`max` を `0` にすると定員を無制限に変更できます。',
+                inline: false,
+            },
+            {
+                name: '🗑️ `/event delete`',
+                value: 'イベントを削除します（作成者のみ）。',
                 inline: false,
             },
             {
