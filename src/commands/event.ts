@@ -270,8 +270,17 @@ async function handleList(interaction: ChatInputCommandInteraction): Promise<voi
         return `${statusEmoji} **${e.title}** | ${dateStr} | ${count}${maxStr}人`;
     });
 
+    // 過去のイベントボタン
+    const historyBtn = new ButtonBuilder()
+        .setCustomId('event_history')
+        .setLabel('📜 過去のイベント')
+        .setStyle(ButtonStyle.Secondary);
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(historyBtn);
+
     await interaction.reply({
         embeds: [infoEmbed('📋 イベント一覧', descriptions.join('\n') + '\n\n`/event manage` で管理できます')],
+        components: [row],
         ephemeral: true,
     });
 }

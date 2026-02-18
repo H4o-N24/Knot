@@ -20,19 +20,51 @@ import { infoEmbed } from '../utils/embeds.js';
 
 const prisma = new PrismaClient();
 
+/**
+ * 外部から呼べるように: 既存の登録をインメモリに読み込む
+ */
+export async function prePopulateSelections(
+    selectionMap: Map<string, Set<string>>,
+    userId: string,
+    guildId: string,
+): Promise<Set<string>> {
+    const { year, month } = getNextMonthInfo();
+    const monthStr = String(month).padStart(2, '0');
+    const key = `${userId}:${guildId}`;
+
+    const existing = await prisma.availability.findMany({
+        where: {
+            userId,
+            guildId,
+            date: { startsWith: `${year}-${monthStr}` },
+            status: 'AVAILABLE',
+        },
+        select: { date: true },
+    });
+
+    const existingDates = new Set(existing.map((e) => e.date));
+
+    // インメモリにも反映
+    selectionMap.set(key, new Set(existingDates));
+
+    return existingDates;
+}
+
 export const data = new SlashCommandBuilder()
     .setName('availability')
-    .setDescription('翌月の空き日を登録します（カレンダー選択式）');
+    .setDescription('翌月の空き日を登録・修正します（カレンダー選択式）');
 
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
     const { year, month, daysInMonth } = getNextMonthInfo();
     const monthStr = String(month).padStart(2, '0');
     const dayLabels = ['日', '月', '火', '水', '木', '金', '土'];
 
-    // 既存の登録を取得
+    // 既存の登録を取得 & インメモリに読み込み
     const guildId = interaction.guildId;
-    const existingDates = new Set<string>();
+    let existingDates = new Set<string>();
     if (guildId) {
+        // interactionCreate の availabilitySelections を直接参照できないので
+        // 既存データだけ取得してEmbedに表示
         const existing = await prisma.availability.findMany({
             where: {
                 userId: interaction.user.id,
@@ -42,25 +74,26 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
             },
             select: { date: true },
         });
-        for (const e of existing) {
-            existingDates.add(e.date);
-        }
+        existingDates = new Set(existing.map((e) => e.date));
     }
-
 
     // --- 前半メニュー (1日〜15日) ---
     const firstHalfOptions = [];
+    const firstHalfDefaults: string[] = [];
     for (let d = 1; d <= 15; d++) {
         const dateStr = `${year}-${monthStr}-${String(d).padStart(2, '0')}`;
         const dow = new Date(dateStr + 'T00:00:00').getDay();
         const dayLabel = dayLabels[dow];
         const isWeekend = dow === 0 || dow === 6;
-        const emoji = isWeekend ? '🟧' : '⬜';
+        const isRegistered = existingDates.has(dateStr);
+        const emoji = isRegistered ? '✅' : isWeekend ? '🟧' : '⬜';
         firstHalfOptions.push({
-            label: `${month}/${d} (${dayLabel})`,
+            label: `${month}/${d} (${dayLabel})${isRegistered ? ' ✓' : ''}`,
             value: dateStr,
             emoji,
+            default: isRegistered,
         });
+        if (isRegistered) firstHalfDefaults.push(dateStr);
     }
 
     const firstHalfMenu = new StringSelectMenuBuilder()
@@ -72,17 +105,21 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
     // --- 後半メニュー (16日〜末日) ---
     const secondHalfOptions = [];
+    const secondHalfDefaults: string[] = [];
     for (let d = 16; d <= daysInMonth; d++) {
         const dateStr = `${year}-${monthStr}-${String(d).padStart(2, '0')}`;
         const dow = new Date(dateStr + 'T00:00:00').getDay();
         const dayLabel = dayLabels[dow];
         const isWeekend = dow === 0 || dow === 6;
-        const emoji = isWeekend ? '🟧' : '⬜';
+        const isRegistered = existingDates.has(dateStr);
+        const emoji = isRegistered ? '✅' : isWeekend ? '🟧' : '⬜';
         secondHalfOptions.push({
-            label: `${month}/${d} (${dayLabel})`,
+            label: `${month}/${d} (${dayLabel})${isRegistered ? ' ✓' : ''}`,
             value: dateStr,
             emoji,
+            default: isRegistered,
         });
+        if (isRegistered) secondHalfDefaults.push(dateStr);
     }
 
     const secondHalfMenu = new StringSelectMenuBuilder()
@@ -92,7 +129,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
         .setMaxValues(secondHalfOptions.length)
         .addOptions(secondHalfOptions);
 
-    // --- 確定ボタン ---
+    // --- ボタン ---
     const confirmBtn = new ButtonBuilder()
         .setCustomId('availability_confirm')
         .setLabel('✅ 空き日を確定する')
@@ -104,9 +141,9 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
         .setStyle(ButtonStyle.Secondary);
 
     // --- カレンダーEmbed ---
-    const calendarText = buildCalendarText(year, month, daysInMonth);
+    const calendarText = buildCalendarText(year, month, daysInMonth, existingDates);
     const existingInfo = existingDates.size > 0
-        ? `\n📌 **現在の登録（${existingDates.size}日）:** ${Array.from(existingDates).sort().map(d => `${Number(d.split('-')[2])}日`).join(', ')}\n`
+        ? `\n✅ **現在の登録（${existingDates.size}日）:** ${Array.from(existingDates).sort().map(d => `${Number(d.split('-')[2])}日`).join(', ')}\n`
         : '\n📌 **現在の登録:** なし\n';
 
     const embed = infoEmbed(
@@ -118,7 +155,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
             '1️⃣ 前半・後半のメニューから空いている日を選択',
             '2️⃣ 「✅ 空き日を確定する」ボタンで登録',
             '',
-            '⚠️ 確定すると既存の登録は上書きされます',
+            '💡 既に登録済みの日は ✅ で表示・プリセット済み',
             '🟧 = 土日 ⬜ = 平日',
         ].join('\n'),
     );
@@ -137,7 +174,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 /**
  * カレンダーテキストを生成（月表示）
  */
-function buildCalendarText(year: number, month: number, daysInMonth: number): string {
+function buildCalendarText(year: number, month: number, daysInMonth: number, _existingDates?: Set<string>): string {
     const header = '`日  月  火  水  木  金  土`';
     const firstDow = new Date(`${year}-${String(month).padStart(2, '0')}-01T00:00:00`).getDay();
 

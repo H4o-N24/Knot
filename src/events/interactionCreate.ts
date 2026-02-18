@@ -127,6 +127,12 @@ async function handleButton(interaction: ButtonInteraction): Promise<void> {
         return;
     }
 
+    // --- イベント: 過去のイベント（アーカイブ）表示 ---
+    if (customId === 'event_history') {
+        await showEventHistory(interaction);
+        return;
+    }
+
     // --- イベント: 参加/キャンセル ---
     const [action, eventId] = customId.split(':');
     if (!eventId) return;
@@ -629,5 +635,41 @@ async function handleAvailabilityConfirm(interaction: ButtonInteraction): Promis
                 `**${dateStrings.length}日分** の空き日を登録しました。\n\n${formattedDates}`,
             ),
         ],
+    });
+}
+
+// =====================================
+// 過去のイベント（アーカイブ）表示
+// =====================================
+async function showEventHistory(interaction: ButtonInteraction): Promise<void> {
+    const guildId = interaction.guildId;
+    if (!guildId) return;
+
+    const archivedEvents = await prisma.event.findMany({
+        where: { guildId, status: 'ARCHIVED' },
+        include: {
+            participants: { where: { status: 'CONFIRMED' } },
+        },
+        orderBy: { date: 'desc' },
+        take: 20,
+    });
+
+    if (archivedEvents.length === 0) {
+        await interaction.reply({
+            embeds: [infoEmbed('📜 過去のイベント', '過去のイベントはまだありません。')],
+            ephemeral: true,
+        });
+        return;
+    }
+
+    const descriptions = archivedEvents.map((e) => {
+        const dateStr = e.date ? formatDateJP(e.date) : '日程なし';
+        const count = e.participants.length;
+        return `📦 **${e.title}** | ${dateStr} | ${count}人参加`;
+    });
+
+    await interaction.reply({
+        embeds: [infoEmbed('📜 過去のイベント', descriptions.join('\n'))],
+        ephemeral: true,
     });
 }
