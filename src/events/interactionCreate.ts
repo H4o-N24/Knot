@@ -21,7 +21,7 @@ import {
 } from 'discord.js';
 import { commands } from '../commands/index.js';
 import { joinEvent, cancelEvent } from '../services/participant.js';
-import { successEmbed, errorEmbed, infoEmbed } from '../utils/embeds.js';
+import { successEmbed, errorEmbed, infoEmbed, confirmedEventEmbed } from '../utils/embeds.js';
 import { formatDateJP, getNextMonthInfo } from '../utils/date.js';
 
 import { prisma } from '../lib/prisma.js';
@@ -220,26 +220,35 @@ async function handleSelectMenu(interaction: StringSelectMenuInteraction): Promi
     const [action, eventId] = customId.split(':');
     if (action !== 'event_select_date' || !eventId) return;
 
-    await interaction.deferReply();
+    await interaction.deferUpdate(); // SelectMenuのUI応答（メッセージは編集モード）
     const selectedDate = interaction.values[0];
 
     const event = await prisma.event.update({
         where: { id: eventId },
         data: { date: selectedDate, status: 'CONFIRMED' },
+        include: { participants: true },
     });
 
+    const confirmedCount = event.participants.filter((p) => p.status === 'CONFIRMED').length;
+    const waitlistedCount = event.participants.filter((p) => p.status === 'WAITLISTED').length;
+
+    // 候補日メッセージをそのまま確定Embedに差し替え（SelectMenuを除去）
     await interaction.editReply({
         embeds: [
-            successEmbed(
-                'イベント日程が確定しました！',
-                `**${event.title}**\n📅 ${formatDateJP(selectedDate)}\n\n参加する方は下のボタンを押してください。`,
-            ),
+            confirmedEventEmbed({
+                title: event.title,
+                date: formatDateJP(selectedDate),
+                confirmedCount,
+                maxParticipants: event.maxParticipants,
+                waitlistedCount,
+                eventId: event.id,
+            }),
         ],
         components: [
             {
                 type: 1,
                 components: [
-                    { type: 2, custom_id: `event_join:${event.id}`, label: '参加', style: 3, emoji: { name: '✅' } },
+                    { type: 2, custom_id: `event_join:${event.id}`, label: '参加する', style: 3, emoji: { name: '✅' } },
                     { type: 2, custom_id: `event_cancel:${event.id}`, label: 'キャンセル', style: 4, emoji: { name: '❌' } },
                 ],
             },

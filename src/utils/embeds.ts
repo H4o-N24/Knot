@@ -76,3 +76,28 @@ export function candidateEmbed(
 
     return embed;
 }
+
+/** 確定イベント Embed（参加者一覧付き） */
+export function confirmedEventEmbed(params: {
+    title: string;
+    date: string;
+    confirmedCount: number;
+    maxParticipants?: number | null;
+    waitlistedCount?: number;
+    eventId: string;
+}): EmbedBuilder {
+    const { title, date, confirmedCount, maxParticipants, waitlistedCount = 0, eventId } = params;
+    const maxStr = maxParticipants ? `/${maxParticipants}` : '';
+    const waitStr = waitlistedCount > 0 ? `\n⏳ キャンセル待ち: **${waitlistedCount}人**` : '';
+
+    return new EmbedBuilder()
+        .setColor(BRAND_COLORS.success)
+        .setTitle(`✅ ${title}`)
+        .setDescription(
+            `📅 **${date}**\n` +
+            `👥 参加確定: **${confirmedCount}${maxStr}人**${waitStr}\n\n` +
+            `参加・キャンセルはボタンで操作できます。`,
+        )
+        .setFooter({ text: `イベントID: ${eventId}` })
+        .setTimestamp();
+}
