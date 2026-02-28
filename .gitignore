@@ -1,5 +1,17 @@
 node_modules/
 dist/
+
+# 環境変数ファイル（.env.example は追跡対象のまま）
 .env
+.env.local
+.env.*.local
+
+# データベースファイル
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
+
+# OS / エディタ
+.DS_Store
+Thumbs.db

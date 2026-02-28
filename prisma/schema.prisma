@@ -9,18 +9,34 @@ datasource db {
 
 /// Discordサーバー設定
 model Guild {
-  id            String   @id @default(cuid())
-  guildId       String   @unique @map("guild_id")
-  botChannelId  String?  @map("bot_channel_id") // Knot専用チャンネルID（nullなら制限なし）
-  planType      String   @default("FREE") @map("plan_type") // FREE, PRO, TEAM
-  timezone      String   @default("Asia/Tokyo")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id                   String    @id @default(cuid())
+  guildId              String    @unique @map("guild_id")
+  botChannelId         String?   @map("bot_channel_id")         // Knot専用チャンネルID（nullなら制限なし）
+  planType             String    @default("FREE") @map("plan_type") // FREE, PREMIUM
+  timezone             String    @default("Asia/Tokyo")
+  language             String    @default("ja") @map("language") // ja, en
+  premiumExpiresAt     DateTime? @map("premium_expires_at")      // プレミアム有効期限
+  eventCountThisMonth  Int       @default(0) @map("event_count_this_month") // 今月のイベント作成数
+  eventCountResetAt    DateTime? @map("event_count_reset_at")   // 月次カウントリセット日時
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   availabilities Availability[]
   events         Event[]
 
   @@map("guilds")
+}
+
+/// プレミアムライセンスコード
+model PremiumCode {
+  id            String    @id @default(cuid())
+  code          String    @unique
+  planType      String    @map("plan_type")           // MONTHLY, YEARLY
+  usedByGuildId String?   @map("used_by_guild_id")   // 使用したサーバーID（nullなら未使用）
+  usedAt        DateTime? @map("used_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@map("premium_codes")
 }
 
 /// Discordユーザー情報
