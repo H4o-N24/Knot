@@ -68,9 +68,18 @@ async function sendAvailabilityReminder(client: Client, year: number, month: num
         try {
             const discordGuild = await client.guilds.fetch(guild.guildId);
 
+            // チャンネル優先順位:
+            // 1. /setup channel で設定した専用チャンネル (botChannelId)
+            // 2. Discordのシステムチャンネル (systemChannelId)
+            // 3. 最初に見つかったテキストチャンネル
             let channel: TextChannel | null = null;
-            if (discordGuild.systemChannelId) {
-                const ch = await discordGuild.channels.fetch(discordGuild.systemChannelId);
+
+            if (guild.botChannelId) {
+                const ch = await discordGuild.channels.fetch(guild.botChannelId).catch(() => null);
+                if (ch?.isTextBased()) channel = ch as TextChannel;
+            }
+            if (!channel && discordGuild.systemChannelId) {
+                const ch = await discordGuild.channels.fetch(discordGuild.systemChannelId).catch(() => null);
                 if (ch?.isTextBased()) channel = ch as TextChannel;
             }
             if (!channel) {
@@ -85,14 +94,14 @@ async function sendAvailabilityReminder(client: Client, year: number, month: num
                 [
                     '月末になりました！翌月の予定を登録して、スムーズな日程調整に備えましょう。',
                     '',
-                    '**`/availability`** コマンドでカレンダーから空き日を選択できます。',
+                    '**`/availability register`** コマンドでカレンダーから空き日を選択できます。',
                     '',
                     '> 💡 みんなが空き日を登録するほど、最適な日程が見つかりやすくなります！',
                 ].join('\n'),
             );
 
             await channel.send({ embeds: [embed] });
-            console.log(`📮 空き日登録リマインダーを送信: ${discordGuild.name}`);
+            console.log(`📮 空き日登録リマインダーを送信: ${discordGuild.name} → #${channel.name}`);
         } catch (err) {
             console.error(`⚠️ リマインダー送信失敗 (${guild.guildId}):`, err);
         }
