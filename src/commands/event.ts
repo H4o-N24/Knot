@@ -90,6 +90,19 @@ async function handleCreate(interaction: ChatInputCommandInteraction): Promise<v
     const minParticipants = interaction.options.getInteger('min') ?? 1;
     const maxParticipants = interaction.options.getInteger('max') ?? undefined;
 
+    if (title.length > 100) {
+        await interaction.editReply({ embeds: [errorEmbed(t.common.errorTitle, t.event.titleTooLong)] });
+        return;
+    }
+    if (minParticipants < 1) {
+        await interaction.editReply({ embeds: [errorEmbed(t.common.errorTitle, t.event.minTooLow)] });
+        return;
+    }
+    if (maxParticipants !== undefined && minParticipants > maxParticipants) {
+        await interaction.editReply({ embeds: [errorEmbed(t.common.errorTitle, t.event.minExceedsMax)] });
+        return;
+    }
+
     const requiredUserIds: string[] = [];
     for (const key of ['required1', 'required2', 'required3'] as const) {
         const user = interaction.options.getUser(key);
@@ -128,6 +141,8 @@ async function handleCreate(interaction: ChatInputCommandInteraction): Promise<v
             createdBy: interaction.user.id,
         },
     });
+
+    await incrementEventCount(guildId);
 
     for (const uid of requiredUserIds) {
         await ensureUser(uid, uid);

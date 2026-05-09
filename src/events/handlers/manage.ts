@@ -196,6 +196,13 @@ export async function handleEditSubmit(interaction: ModalSubmitInteraction): Pro
         return;
     }
 
+    const resolvedMin = updateData.minParticipants ?? event.minParticipants;
+    const resolvedMax = updateData.maxParticipants !== undefined ? updateData.maxParticipants : event.maxParticipants;
+    if (resolvedMax !== null && resolvedMax !== undefined && resolvedMin > resolvedMax) {
+        await interaction.editReply({ embeds: [errorEmbed(t.common.errorTitle, t.event.minExceedsMax)] });
+        return;
+    }
+
     await prisma.event.update({ where: { id: eventId }, data: updateData });
     await interaction.editReply({ embeds: [successEmbed(t.event.editedTitle, changes.join('\n'))] });
 }

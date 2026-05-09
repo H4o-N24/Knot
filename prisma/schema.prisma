@@ -79,7 +79,7 @@ model Event {
   date            String?  // 確定日 (YYYY-MM-DD)
   minParticipants Int      @default(1) @map("min_participants")
   maxParticipants Int?     @map("max_participants")
-  status          String   @default("PLANNING") // PLANNING, CONFIRMED, CANCELLED, COMPLETED
+  status          String   @default("PLANNING") // PLANNING, CONFIRMED, CANCELLED, COMPLETED, ARCHIVED
   channelId       String?  @map("channel_id")
   messageId       String?  @map("message_id")
   createdBy       String   @map("created_by") // Discord User ID

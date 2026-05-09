@@ -49,6 +49,10 @@ export const en = {
     // === /event ===
     event: {
         // create
+        titleTooLong: 'Event name must be 100 characters or fewer.',
+        minTooLow: 'Minimum participants must be at least 1.',
+        minExceedsMax: 'Minimum participants cannot exceed the capacity.',
+
         noCandidatesTitle: 'Event Created',
         noCandidatesDesc: (title: string, id: string) =>
             `**${title}** was created, but no candidate dates match the conditions.\nAsk members to register their availability.\n\nEvent ID: \`${id}\``,

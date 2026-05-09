@@ -64,8 +64,8 @@ export function registerInteractionHandler(client: Client): void {
             // オートコンプリート
             if (interaction.isAutocomplete()) {
                 const command = commands.get(interaction.commandName);
-                if (!command || !('autocomplete' in command)) return;
-                await (command as any).autocomplete(interaction);
+                if (!command?.autocomplete) return;
+                await command.autocomplete(interaction);
                 return;
             }
 
@@ -117,11 +117,12 @@ export function registerInteractionHandler(client: Client): void {
             }
         } catch (error) {
             console.error('❌ インタラクション処理エラー:', error);
-            const t = await getT(interaction.isRepliable() && (interaction as any).guildId ? (interaction as any).guildId : null);
+            const guildId = 'guildId' in interaction ? (interaction as { guildId: string | null }).guildId : null;
+            const t = await getT(guildId);
             const reply = { embeds: [errorEmbed(t.common.errorTitle, t.common.processing)], flags: MessageFlags.Ephemeral as const };
             if (interaction.isRepliable()) {
-                if ((interaction as any).deferred || (interaction as any).replied) {
-                    await (interaction as any).followUp(reply);
+                if (interaction.deferred || interaction.replied) {
+                    await interaction.followUp(reply);
                 } else {
                     await interaction.reply(reply);
                 }

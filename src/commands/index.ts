@@ -6,6 +6,7 @@
 import {
     Collection,
     type ChatInputCommandInteraction,
+    type AutocompleteInteraction,
     type SlashCommandBuilder,
 } from 'discord.js';
 
@@ -18,6 +19,7 @@ import * as setup from './setup.js';
 export interface Command {
     data: SlashCommandBuilder;
     execute: (interaction: ChatInputCommandInteraction) => Promise<void>;
+    autocomplete?: (interaction: AutocompleteInteraction) => Promise<void>;
 }
 
 const commands = new Collection<string, Command>();

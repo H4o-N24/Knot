@@ -49,6 +49,10 @@ export const ja = {
     // === /event ===
     event: {
         // create
+        titleTooLong: 'イベント名は100文字以内にしてください。',
+        minTooLow: '最低参加人数は1以上にしてください。',
+        minExceedsMax: '最低参加人数は定員以下にしてください。',
+
         noCandidatesTitle: 'イベント作成完了',
         noCandidatesDesc: (title: string, id: string) =>
             `**${title}** を作成しましたが、現在の条件に合う候補日が見つかりません。\nメンバーに空き日の登録を依頼してください。\n\nイベントID: \`${id}\``,

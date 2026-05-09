@@ -9,6 +9,7 @@ import { registerReadyHandler } from './events/ready.js';
 import { registerInteractionHandler } from './events/interactionCreate.js';
 import { registerGuildCreateHandler } from './events/guildCreate.js';
 import { startMonthlyScheduler, stopMonthlyScheduler } from './services/cleanup.js';
+import { prisma } from './lib/prisma.js';
 
 // 環境変数のバリデーション
 validateConfig();
@@ -39,7 +40,7 @@ function shutdown(): void {
     console.log('\n🛑 Knot をシャットダウンしています...');
     stopMonthlyScheduler();
     client.destroy();
-    process.exit(0);
+    prisma.$disconnect().finally(() => process.exit(0));
 }
 
 process.on('SIGINT', shutdown);
